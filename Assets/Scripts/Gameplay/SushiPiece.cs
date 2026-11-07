@@ -41,49 +41,103 @@ namespace SushiSort.Gameplay
         private Coroutine _revealCoroutine;
         private MonoBehaviour _revealRunner;
 
+        // Cached original scale configured in prefab
+        private Vector3 _originalMysteryScale = Vector3.one;
+        private bool _isMysteryScaleCached = false;
+
+        private void Awake()
+        {
+            CacheOriginalMysteryScale();
+        }
+
+        /// <summary>
+        /// Reads and preserves the original mysteryWrapper localScale configured in the prefab before any hierarchy modifications.
+        /// </summary>
+        private void CacheOriginalMysteryScale()
+        {
+            if (_isMysteryScaleCached) return;
+
+            if (mysteryWrapper == null)
+            {
+                Transform mysteryChild = transform.Find("MisteriSushi") 
+                    ?? transform.Find("Mystery") 
+                    ?? FindDeepChild(transform, "MisteriSushi") 
+                    ?? FindDeepChild(transform, "Mystery");
+
+                if (mysteryChild != null && mysteryChild.gameObject != gameObject)
+                {
+                    mysteryWrapper = mysteryChild.gameObject;
+                }
+            }
+
+            if (mysteryWrapper != null)
+            {
+                _originalMysteryScale = mysteryWrapper.transform.localScale;
+                // Jika skala terbaca 100 (atau kelipatan besar), normalisasi ke Vector3.one (skala 1 yang pas)
+                if (_originalMysteryScale.x > 10f || _originalMysteryScale == Vector3.zero)
+                {
+                    _originalMysteryScale = Vector3.one;
+                }
+                _isMysteryScaleCached = true;
+            }
+        }
+
         /// <summary>
         /// Initializes the sushi piece type, mystery status, and visual materials.
-        /// Guaranteed to set this GameObject active, restore scale, and ensure full visual rendering.
+        /// Preserves prefab transform scale and ensures proper visual rendering.
         /// </summary>
         public void Initialize(SushiType type, bool mystery, SushiDataSO data)
         {
-            // 1. Aktifkan root GameObject
+            // 1. Pastikan root GameObject selalu aktif
             gameObject.SetActive(true);
 
-            // 2. Pastikan localScale tidak bernilai Vector3.zero
-            if (transform.localScale == Vector3.zero || 
-                transform.localScale.x <= 0.0001f || 
-                transform.localScale.y <= 0.0001f || 
-                transform.localScale.z <= 0.0001f)
-            {
-                transform.localScale = Vector3.one;
-            }
+            // 2. Simpan skala asli yang sudah diatur di prefab jika belum tercatat
+            CacheOriginalMysteryScale();
 
             sushiType = type;
             isMystery = mystery;
 
-            // 3. Auto-resolve visual references if missing or pointing to root
+            // 3. Auto-resolve visual references if missing, pointing to root, or nested
             ResolveVisualReferences();
 
-            // 4. Apply custom material if specified in SushiDataSO
+            // 4. Pastikan mysteryWrapper mempertahankan skala asli prefab
+            if (mysteryWrapper != null && _originalMysteryScale != Vector3.zero)
+            {
+                mysteryWrapper.transform.localScale = _originalMysteryScale;
+            }
+
+            // 5. Apply custom material if specified in SushiDataSO
             if (data != null && data.SushiMaterial != null && normalRenderer != null)
             {
                 normalRenderer.sharedMaterial = data.SushiMaterial;
             }
 
-            // 5. Configure visual states & renderers
+            // 6. Configure visual states & renderers based on isMystery
             UpdateVisualState();
         }
 
         private void ResolveVisualReferences()
         {
-            // If mysteryWrapper points to root, is null, or is an external prefab asset, find child named "MisteriSushi"
+            // 1. Identify mysteryWrapper child
             if (mysteryWrapper == null || mysteryWrapper == gameObject || !mysteryWrapper.transform.IsChildOf(transform))
             {
-                Transform mysteryChild = transform.Find("MisteriSushi") ?? FindDeepChild(transform, "MisteriSushi");
+                Transform mysteryChild = transform.Find("MisteriSushi") 
+                    ?? transform.Find("Mystery") 
+                    ?? FindDeepChild(transform, "MisteriSushi") 
+                    ?? FindDeepChild(transform, "Mystery");
+
                 if (mysteryChild != null && mysteryChild.gameObject != gameObject)
                 {
                     mysteryWrapper = mysteryChild.gameObject;
+                    if (!_isMysteryScaleCached)
+                    {
+                        _originalMysteryScale = mysteryWrapper.transform.localScale;
+                        if (_originalMysteryScale.x > 10f || _originalMysteryScale == Vector3.zero)
+                        {
+                            _originalMysteryScale = Vector3.one;
+                        }
+                        _isMysteryScaleCached = true;
+                    }
                 }
                 else
                 {
@@ -91,8 +145,8 @@ namespace SushiSort.Gameplay
                 }
             }
 
-            // If normalModel points to root or is null, find the normal roll mesh child
-            if (normalModel == null || normalModel == gameObject)
+            // 2. Identify normalModel (the sushi roll mesh child that is NOT mysteryWrapper)
+            if (normalModel == null || normalModel == gameObject || normalModel == mysteryWrapper)
             {
                 foreach (Transform child in transform)
                 {
@@ -103,6 +157,40 @@ namespace SushiSort.Gameplay
                 }
             }
 
+            // 3. Reparent mysteryWrapper directly under this root transform jika tersarang di dalam model lain
+            // agar jika normalModel dinonaktifkan, mysteryWrapper tetap aktif
+            if (mysteryWrapper != null)
+            {
+                if (mysteryWrapper.transform.parent != transform)
+                {
+                    mysteryWrapper.transform.SetParent(transform, false);
+                }
+
+                // Reset offset posisi dan rotasi lokal tepat di tengah
+                mysteryWrapper.transform.localPosition = Vector3.zero;
+                mysteryWrapper.transform.localRotation = Quaternion.identity;
+
+                // Pertahankan skala asli prefab, jangan pernah mengalikannya dengan angka 100f atau me-reset sembarangan
+                if (_originalMysteryScale != Vector3.zero)
+                {
+                    mysteryWrapper.transform.localScale = _originalMysteryScale;
+                }
+
+                // Clean up any stray SushiPiece script accidentally attached to mysteryWrapper
+                if (mysteryWrapper.TryGetComponent<SushiPiece>(out var strayPiece) && strayPiece != this)
+                {
+                    strayPiece.enabled = false;
+                    Destroy(strayPiece);
+                }
+
+                // Disable child collider so it doesn't conflict with root BoxCollider
+                if (mysteryWrapper.TryGetComponent<Collider>(out var childCollider))
+                {
+                    childCollider.enabled = false;
+                }
+            }
+
+            // 4. Resolve renderer references
             if (normalRenderer == null && normalModel != null)
             {
                 normalRenderer = normalModel.GetComponentInChildren<MeshRenderer>(true);
@@ -127,7 +215,7 @@ namespace SushiSort.Gameplay
         {
             foreach (Transform child in parent)
             {
-                if (child.name == childName) return child;
+                if (child.name.IndexOf(childName, StringComparison.OrdinalIgnoreCase) >= 0) return child;
                 Transform found = FindDeepChild(child, childName);
                 if (found != null) return found;
             }
@@ -136,43 +224,91 @@ namespace SushiSort.Gameplay
 
         /// <summary>
         /// Sets normal and mystery model active states based on current isMystery flag.
-        /// Ensures all non-mystery renderers are active and enabled.
+        /// Ensures correct renderers are active and visible from the first frame.
         /// </summary>
-        private void UpdateVisualState()
+        public void UpdateVisualState()
         {
-            if (mysteryWrapper != null && mysteryWrapper != gameObject)
+            if (isMystery)
             {
-                mysteryWrapper.SetActive(isMystery);
-            }
-
-            if (normalModel != null && normalModel != gameObject)
-            {
-                normalModel.SetActive(!isMystery);
-            }
-
-            // Pastikan semua child Renderer menyala (kecuali mysteryWrapper jika bukan mystery)
-            Renderer[] renderers = GetComponentsInChildren<Renderer>(true);
-            foreach (var r in renderers)
-            {
-                if (r == null) continue;
-
-                if (mysteryWrapper != null && (r.gameObject == mysteryWrapper || r.transform.IsChildOf(mysteryWrapper.transform)))
+                // Jika isMystery == true:
+                // 1. Tampilkan model penutup misteri
+                if (mysteryWrapper != null && mysteryWrapper != gameObject)
                 {
-                    r.gameObject.SetActive(isMystery);
-                    r.enabled = isMystery;
-                    continue;
+                    mysteryWrapper.SetActive(true);
+
+                    // Pertahankan skala asli prefab secara stabil
+                    if (_originalMysteryScale != Vector3.zero)
+                    {
+                        mysteryWrapper.transform.localScale = _originalMysteryScale;
+                    }
+
+                    // Pastikan seluruh mesh renderer mystery wrapper aktif dan terlihat
+                    Renderer[] mysteryRenderers = mysteryWrapper.GetComponentsInChildren<Renderer>(true);
+                    foreach (var mr in mysteryRenderers)
+                    {
+                        if (mr != null)
+                        {
+                            mr.gameObject.SetActive(true);
+                            mr.enabled = true;
+                        }
+                    }
                 }
 
-                // If not mystery, ensure normal sushi meshes are fully active and enabled
-                if (!isMystery)
+                // 2. Sembunyikan model sushi aslinya
+                if (normalModel != null && normalModel != gameObject && normalModel != mysteryWrapper)
                 {
+                    normalModel.SetActive(false);
+                }
+
+                // Nonaktifkan renderer normal sushi agar tidak overlap
+                Renderer[] allRenderers = GetComponentsInChildren<Renderer>(true);
+                foreach (var r in allRenderers)
+                {
+                    if (r == null) continue;
+                    if (mysteryWrapper != null && (r.gameObject == mysteryWrapper || r.transform.IsChildOf(mysteryWrapper.transform)))
+                        continue;
+
+                    r.enabled = false;
+                }
+            }
+            else
+            {
+                // Jika isMystery == false:
+                // 1. Sembunyikan mystery wrapper
+                if (mysteryWrapper != null && mysteryWrapper != gameObject)
+                {
+                    mysteryWrapper.SetActive(false);
+                }
+
+                // 2. Tampilkan model asli
+                if (normalModel != null && normalModel != gameObject)
+                {
+                    normalModel.SetActive(true);
+
+                    Renderer[] normalRenderers = normalModel.GetComponentsInChildren<Renderer>(true);
+                    foreach (var nr in normalRenderers)
+                    {
+                        if (nr != null)
+                        {
+                            nr.gameObject.SetActive(true);
+                            nr.enabled = true;
+                        }
+                    }
+                }
+
+                // Pastikan seluruh renderer normal aktif dan menyala
+                Renderer[] allRenderers = GetComponentsInChildren<Renderer>(true);
+                foreach (var r in allRenderers)
+                {
+                    if (r == null) continue;
+                    if (mysteryWrapper != null && (r.gameObject == mysteryWrapper || r.transform.IsChildOf(mysteryWrapper.transform)))
+                    {
+                        r.enabled = false;
+                        continue;
+                    }
+
                     r.gameObject.SetActive(true);
                     r.enabled = true;
-                }
-                else
-                {
-                    r.gameObject.SetActive(false);
-                    r.enabled = false;
                 }
             }
         }
@@ -247,24 +383,37 @@ namespace SushiSort.Gameplay
             // Immediate fallback if coroutine could not be started
             if (_revealCoroutine == null)
             {
-                if (mysteryWrapper != null) mysteryWrapper.SetActive(false);
+                if (revealParticle != null) revealParticle.Play();
+                if (mysteryWrapper != null)
+                {
+                    mysteryWrapper.SetActive(false);
+                    if (_originalMysteryScale != Vector3.zero)
+                    {
+                        mysteryWrapper.transform.localScale = _originalMysteryScale;
+                    }
+                }
+                if (normalModel != null) normalModel.SetActive(true);
+                isMystery = false;
+                UpdateVisualState();
                 onComplete?.Invoke();
             }
         }
 
         private IEnumerator AnimateRevealRoutine(Action onComplete)
         {
+            // 1. Mainkan efek partikel jika ada
             if (revealParticle != null)
             {
                 revealParticle.Play();
             }
 
+            // 2. Sembunyikan mysteryWrapper dengan animasi shrink/dissolve
             if (mysteryWrapper != null)
             {
-                Vector3 originalScale = mysteryWrapper.transform.localScale;
+                Vector3 originalScale = _originalMysteryScale != Vector3.zero ? _originalMysteryScale : mysteryWrapper.transform.localScale;
                 Quaternion originalRot = mysteryWrapper.transform.localRotation;
                 float elapsed = 0f;
-                float duration = 0.25f;
+                float duration = 0.22f;
 
                 // Punch scale up slightly, then shrink to 0
                 while (elapsed < duration)
@@ -273,7 +422,6 @@ namespace SushiSort.Gameplay
                     float t = Mathf.Clamp01(elapsed / duration);
 
                     // Easing scale out
-                    float scaleFactor = Mathf.Sin(t * Mathf.PI);
                     mysteryWrapper.transform.localScale = Vector3.Lerp(originalScale * 1.25f, Vector3.zero, t);
                     mysteryWrapper.transform.Rotate(Vector3.up, 360f * Time.deltaTime * 2f, Space.Self);
 
@@ -285,26 +433,31 @@ namespace SushiSort.Gameplay
                 mysteryWrapper.transform.localRotation = originalRot;
             }
 
-            UpdateVisualState();
-
-            // Normal model subtle pop
+            // 3. Tampilkan normalModel dan update state
             if (normalModel != null)
             {
-                Vector3 origScale = normalModel.transform.localScale;
-                float elapsed = 0f;
-                float popDuration = 0.15f;
-
-                while (elapsed < popDuration)
-                {
-                    elapsed += Time.deltaTime;
-                    float t = Mathf.Clamp01(elapsed / popDuration);
-                    float bump = 1f + Mathf.Sin(t * Mathf.PI) * 0.2f;
-                    normalModel.transform.localScale = origScale * bump;
-                    yield return null;
-                }
-
-                normalModel.transform.localScale = origScale;
+                normalModel.SetActive(true);
             }
+
+            isMystery = false;
+            UpdateVisualState();
+
+            // 4. Jalankan animasi punch scale pada normalModel agar transisi juicy
+            Transform popTarget = normalModel != null ? normalModel.transform : transform;
+            Vector3 origScale = popTarget.localScale;
+            float popElapsed = 0f;
+            float popDuration = 0.20f;
+
+            while (popElapsed < popDuration)
+            {
+                popElapsed += Time.deltaTime;
+                float t = Mathf.Clamp01(popElapsed / popDuration);
+                float bump = 1f + Mathf.Sin(t * Mathf.PI) * 0.25f;
+                popTarget.localScale = origScale * bump;
+                yield return null;
+            }
+
+            popTarget.localScale = origScale;
 
             _revealCoroutine = null;
             _revealRunner = null;

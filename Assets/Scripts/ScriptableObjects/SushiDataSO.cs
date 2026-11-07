@@ -29,11 +29,11 @@ namespace SushiSort.ScriptableObjects
         [SerializeField] private Material sushiMaterial;
 
         [Header("Atlas UV Settings (Lock Requirement Ribbon)")]
-        [Tooltip("UV offset (X, Y) inside the 2048x2048 sushi icon texture atlas.")]
+        [Tooltip("UV offset (X, Y) inside the 2048x2048 sushi icon texture atlas. For a 4x4 atlas: X is +0.25 per col, Y is -0.25 per row down.")]
         [SerializeField] private Vector2 uvOffset = Vector2.zero;
 
-        [Tooltip("UV scale/tiling (X, Y) inside the sushi icon texture atlas (e.g. 0.25, 0.25 for 4x4 grid).")]
-        [SerializeField] private Vector2 uvScale = new Vector2(0.25f, 0.25f);
+        [Tooltip("UV scale/tiling (X, Y). Defaults to (1, 1) because the AtlasSushi.fbx mesh is already pre-unwrapped to a 0.25x0.25 tile.")]
+        [SerializeField] private Vector2 uvScale = Vector2.one;
 
         // Public Getters (Strict Encapsulation)
         public SushiType SushiType => sushiType;
@@ -53,10 +53,10 @@ namespace SushiSort.ScriptableObjects
                 displayName = sushiType.ToString();
             }
 
-            // Ensure UV scale is not accidentally zeroed
-            if (uvScale == Vector2.zero)
+            // Ensure UV scale is not accidentally zeroed or incorrectly set to 0.25 (since mesh is pre-unwrapped)
+            if (uvScale == Vector2.zero || uvScale == new Vector2(0.25f, 0.25f))
             {
-                uvScale = new Vector2(0.25f, 0.25f);
+                uvScale = Vector2.one;
             }
         }
 #endif

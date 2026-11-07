@@ -18,3 +18,5 @@ MonoBehaviour:
   sushiPrefab: {fileID: 1234506339815235195, guid: 36ce6b4dea1515641949386925bf1d7a,
     type: 3}
   sushiMaterial: {fileID: 2100000, guid: 8aa08e701928c40488f28b21f7a0b1cc, type: 2}
+  uvOffset: {x: 0.0, y: 0.0}
+  uvScale: {x: 1, y: 1}

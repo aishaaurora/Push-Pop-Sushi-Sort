@@ -38,13 +38,27 @@ namespace SushiSort.Gameplay
         [Tooltip("Text or icon showing unlock requirement if locked.")]
         [SerializeField] private GameObject unlockRequirementIndicator;
 
-        [Tooltip("Particle effect triggered when completing this tube.")]
+        [Header("Celebration VFX & Bounce")]
+        [Tooltip("Particle system triggered when completing this tube.")]
+        [SerializeField] private ParticleSystem celebrationParticle;
+
+        [Tooltip("Spawn point for completion particles. Fallbacks to hoverPoint if null.")]
+        [SerializeField] private Transform effectSpawnPoint;
+
+        [Tooltip("Enables juicy squish and stretch bounce animation upon completion.")]
+        [SerializeField] private bool enablePunchScale = true;
+
+        [SerializeField] private Vector3 punchScaleVector = new Vector3(0.12f, 0.2f, 0.12f);
+        [SerializeField] private float punchDuration = 0.35f;
+
+        [Tooltip("Legacy fallback reference for completion particle.")]
         [SerializeField] private ParticleSystem completeParticle;
 
         // Internal State
         private readonly Stack<SushiPiece> _sushiStack = new Stack<SushiPiece>();
         private Coroutine _shakeCoroutine;
         private Coroutine _plungerCoroutine;
+        private Coroutine _celebrationCoroutine;
         private Vector3 _originalLocalPos;
         private Vector3 _plungerOriginalLocalPos;
         private LevelDatabaseSO _cachedDatabase;
@@ -100,6 +114,20 @@ namespace SushiSort.Gameplay
                 _plungerOriginalLocalPos = plungerStick.localPosition;
             }
             ValidateOrAutoBindSlots();
+
+            if (effectSpawnPoint == null)
+            {
+                effectSpawnPoint = hoverPoint != null ? hoverPoint : transform;
+            }
+
+            if (celebrationParticle != null)
+            {
+                celebrationParticle.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            }
+            else if (completeParticle != null)
+            {
+                completeParticle.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            }
         }
 
 #if UNITY_EDITOR
@@ -174,6 +202,16 @@ namespace SushiSort.Gameplay
                 {
                     lockRequirementRenderer = atlasTransform.GetComponent<Renderer>();
                 }
+            }
+
+            if (effectSpawnPoint == null)
+            {
+                effectSpawnPoint = hoverPoint != null ? hoverPoint : transform;
+            }
+
+            if (celebrationParticle == null)
+            {
+                celebrationParticle = GetComponentInChildren<ParticleSystem>(true);
             }
         }
 
@@ -473,20 +511,73 @@ namespace SushiSort.Gameplay
         /// </summary>
         public void UpdateLockRequirementVisual(SushiType requirement, LevelDatabaseSO database)
         {
+            if (lockRequirementRenderer == null)
+            {
+                Transform atlasTransform = transform.Find("AtlasSushi") ?? FindDeepChild(transform, "AtlasSushi");
+                if (atlasTransform != null)
+                {
+                    lockRequirementRenderer = atlasTransform.GetComponent<Renderer>();
+                }
+            }
+
             if (lockRequirementRenderer == null) return;
-            if (database == null) return;
             if (propBlock == null) propBlock = new MaterialPropertyBlock();
 
-            var sushiData = database.GetSushiData(requirement);
+            var sushiData = database != null ? database.GetSushiData(requirement) : null;
+
+            // Default UV scale is (1, 1) because AtlasSushi.fbx mesh is already pre-unwrapped to a 0.25x0.25 cell (Tile 0).
+            Vector2 scale = Vector2.one;
+            Vector2 offset = Vector2.zero;
+
+            // Auto-calculate exact offset based on the 4x4 atlas layout:
+            // Row 0 (top): Salmon(1)=(0, 0), Tuna(2)=(+0.25, 0), Tamago(3)=(+0.50, 0), Kappa(4)=(+0.75, 0)
+            // Row 1:       Ebi(5)=(0, -0.25), California(6)=(+0.25, -0.25)
+            switch (requirement)
+            {
+                case SushiType.Salmon:
+                    offset = new Vector2(0f, 0f);
+                    break;
+                case SushiType.Tuna:
+                    offset = new Vector2(0.25f, 0f);
+                    break;
+                case SushiType.Tamago:
+                    offset = new Vector2(0.50f, 0f);
+                    break;
+                case SushiType.Kappa:
+                    offset = new Vector2(0.75f, 0f);
+                    break;
+                case SushiType.Ebi:
+                    offset = new Vector2(0f, -0.25f);
+                    break;
+                case SushiType.California:
+                    offset = new Vector2(0.25f, -0.25f);
+                    break;
+                default:
+                    offset = Vector2.zero;
+                    break;
+            }
+
+            // Allow custom override from SushiDataSO if explicitly specified (ignoring invalid 0.25 scale)
             if (sushiData != null)
             {
-                lockRequirementRenderer.GetPropertyBlock(propBlock);
-                // Vector4: (ScaleX, ScaleY, OffsetX, OffsetY)
-                Vector4 st = new Vector4(sushiData.UvScale.x, sushiData.UvScale.y, sushiData.UvOffset.x, sushiData.UvOffset.y);
-                propBlock.SetVector(BaseMapSt, st);
-                propBlock.SetVector(MainTexSt, st);
-                lockRequirementRenderer.SetPropertyBlock(propBlock);
+                if (sushiData.UvScale != Vector2.zero && sushiData.UvScale != new Vector2(0.25f, 0.25f))
+                {
+                    scale = sushiData.UvScale;
+                }
+                if (sushiData.UvOffset != Vector2.zero)
+                {
+                    offset = sushiData.UvOffset;
+                }
             }
+
+            lockRequirementRenderer.gameObject.SetActive(true);
+            lockRequirementRenderer.enabled = true;
+
+            lockRequirementRenderer.GetPropertyBlock(propBlock);
+            Vector4 st = new Vector4(scale.x, scale.y, offset.x, offset.y);
+            propBlock.SetVector(BaseMapSt, st);
+            propBlock.SetVector(MainTexSt, st);
+            lockRequirementRenderer.SetPropertyBlock(propBlock);
         }
 
         /// <summary>
@@ -601,14 +692,52 @@ namespace SushiSort.Gameplay
         }
 
         /// <summary>
-        /// Triggers completion visual celebration when tube is fully sorted.
+        /// Plays particle system VFX celebration and triggers bouncy squish & stretch on the tube.
         /// </summary>
-        public void TriggerCompleteCelebration()
+        public void PlayCompleteCelebration()
         {
-            if (completeParticle != null)
+            var particle = celebrationParticle != null ? celebrationParticle : completeParticle;
+            if (particle != null)
             {
-                completeParticle.Play();
+                if (effectSpawnPoint != null)
+                {
+                    particle.transform.position = effectSpawnPoint.position;
+                }
+                particle.Play();
             }
+
+            if (enablePunchScale && gameObject.activeInHierarchy)
+            {
+                if (_celebrationCoroutine != null) StopCoroutine(_celebrationCoroutine);
+                _celebrationCoroutine = StartCoroutine(AnimateBounceRoutine(punchDuration));
+            }
+        }
+
+        /// <summary>
+        /// Backward-compatible alias for PlayCompleteCelebration.
+        /// </summary>
+        public void TriggerCompleteCelebration() => PlayCompleteCelebration();
+
+        private IEnumerator AnimateBounceRoutine(float duration = 0.35f)
+        {
+            Vector3 originalScale = transform.localScale;
+            float elapsed = 0f;
+            if (duration <= 0.001f) yield break;
+
+            while (elapsed < duration)
+            {
+                elapsed += Time.deltaTime;
+                float t = Mathf.Clamp01(elapsed / duration);
+                float damp = 1f - t;
+                float wave = Mathf.Sin(t * Mathf.PI * 2f) * damp;
+                float scaleY = 1f + wave * punchScaleVector.y;
+                float scaleXZ = 1f - wave * punchScaleVector.x;
+                transform.localScale = new Vector3(originalScale.x * scaleXZ, originalScale.y * scaleY, originalScale.z * scaleXZ);
+                yield return null;
+            }
+
+            transform.localScale = originalScale;
+            _celebrationCoroutine = null;
         }
 
         #region Slot Position Helpers
@@ -737,7 +866,9 @@ namespace SushiSort.Gameplay
         {
             if (_shakeCoroutine != null) StopCoroutine(_shakeCoroutine);
             if (_plungerCoroutine != null) StopCoroutine(_plungerCoroutine);
+            if (_celebrationCoroutine != null) StopCoroutine(_celebrationCoroutine);
             transform.localPosition = _originalLocalPos;
+            transform.localScale = Vector3.one;
         }
     }
 }

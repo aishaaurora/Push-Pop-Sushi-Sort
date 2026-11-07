@@ -417,7 +417,7 @@ namespace SushiSort.Core
             // 5. Check if destination tube is completed
             if (destination.IsCompleted)
             {
-                destination.TriggerCompleteCelebration();
+                destination.PlayCompleteCelebration();
                 SushiType completedType = destination.PeekTop().SushiType;
                 OnTubeCompleted?.Invoke(completedType);
 
