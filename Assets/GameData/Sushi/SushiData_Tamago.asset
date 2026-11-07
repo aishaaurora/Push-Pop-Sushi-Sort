@@ -1,0 +1,20 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b14a31b04ebc9424b8df4a18222510c4, type: 3}
+  m_Name: SushiData_Tamago
+  m_EditorClassIdentifier: 
+  sushiType: 3
+  displayName: Tamago
+  themeColor: {r: 0.9843137, g: 0.93424505, b: 0, a: 1}
+  sushiPrefab: {fileID: 6006348508066605351, guid: 4e43b394d820e7f4eaa3679b155e69b5,
+    type: 3}
+  sushiMaterial: {fileID: 2100000, guid: a9bf5cbfb8baf174bb7afa372676a8e8, type: 2}

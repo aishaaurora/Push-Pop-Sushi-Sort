@@ -1,0 +1,34 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dd8f3c339bfbcc9498dbe29bb10b944b, type: 3}
+  m_Name: Level_1
+  m_EditorClassIdentifier: 
+  levelNumber: 1
+  maxTubeCapacity: 4
+  colorCount: 2
+  emptyBufferTubes: 1
+  mysteryTubeCount: 0
+  lockedTubeCount: 0
+  shuffleSteps: 20
+  tubes:
+  - sushiStack: 05000000020000000500000002000000
+    isLocked: 0
+    unlockRequirement: 0
+    mysteryCount: 0
+  - sushiStack: 02000000050000000500000002000000
+    isLocked: 0
+    unlockRequirement: 0
+    mysteryCount: 0
+  - sushiStack: 
+    isLocked: 0
+    unlockRequirement: 0
+    mysteryCount: 0

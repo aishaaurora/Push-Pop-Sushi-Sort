@@ -1,0 +1,20 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b14a31b04ebc9424b8df4a18222510c4, type: 3}
+  m_Name: SushiData_Salmon
+  m_EditorClassIdentifier: 
+  sushiType: 1
+  displayName: Salmon
+  themeColor: {r: 1, g: 0.59073555, b: 0, a: 1}
+  sushiPrefab: {fileID: 1234506339815235195, guid: 36ce6b4dea1515641949386925bf1d7a,
+    type: 3}
+  sushiMaterial: {fileID: 2100000, guid: 8aa08e701928c40488f28b21f7a0b1cc, type: 2}

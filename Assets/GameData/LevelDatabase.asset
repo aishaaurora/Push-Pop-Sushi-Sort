@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 27d93c1b979edf5449557212d0a18052, type: 3}
+  m_Name: LevelDatabase
+  m_EditorClassIdentifier: 
+  curatedLevels:
+  - {fileID: 11400000, guid: 2bb400e813bbc214096883b622e791f8, type: 2}
+  - {fileID: 11400000, guid: b3be63c4495c8fa488b98e1d35b62fc9, type: 2}
+  allSushiTypes:
+  - {fileID: 11400000, guid: 104742e29c8cb6d46a348ec912601439, type: 2}
+  - {fileID: 11400000, guid: 47646e1c5bd04cc4ba517dbdbd7ae887, type: 2}
+  - {fileID: 11400000, guid: bba62661089eb1b4e982e8c34f62e4aa, type: 2}
+  - {fileID: 11400000, guid: 7480d0f4412b8f34b9d00b83d0eb913e, type: 2}
+  - {fileID: 11400000, guid: 679d9295c83fdba4f96b20e9dfacc00d, type: 2}
+  - {fileID: 11400000, guid: 6d0c5ce40ffa324429bc3b5a18bb681c, type: 2}
