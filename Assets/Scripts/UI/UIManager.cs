@@ -124,6 +124,11 @@ namespace SushiSort.UI
         [Tooltip("Text label inside toast notification.")]
         [SerializeField] private TextMeshProUGUI txtToastMessage;
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+        [System.Runtime.InteropServices.DllImport("__Internal")]
+        private static extern void DownloadFileFromMemory(byte[] array, int byteLength, string fileName);
+#endif
+
         // Coroutine trackers
         private Coroutine _winAnimCoroutine;
         private Coroutine _loseAnimCoroutine;
@@ -774,7 +779,7 @@ namespace SushiSort.UI
         private void OnTakeScreenshotClicked()
         {
             if (_screenshotCoroutine != null) StopCoroutine(_screenshotCoroutine);
-            _screenshotCoroutine = StartCoroutine(CaptureScreenshotCleanRoutine());
+            _screenshotCoroutine = StartCoroutine(TakeScreenshotAndSave());
         }
 
         private void OnScreenshotClicked()
@@ -783,37 +788,63 @@ namespace SushiSort.UI
         }
 
         /// <summary>
-        /// Captures a clean screenshot without setting panel UI interference.
+        /// Captures a clean screenshot without setting panel UI interference and saves it directly
+        /// to the device's public gallery using NativeGallery.
         /// </summary>
-        private IEnumerator CaptureScreenshotCleanRoutine()
+        private IEnumerator TakeScreenshotAndSave()
         {
-            TriggerScreenshotFlash();
-
-            // 1. Sembunyikan panel setting sementara jika aktif
+            // Sembunyikan UI
             bool wasSettingOpen = settingPanel != null && settingPanel.activeSelf;
             if (settingPanel != null)
             {
                 settingPanel.SetActive(false);
             }
 
+            if (screenshotFlashOverlay != null)
+            {
+                screenshotFlashOverlay.alpha = 0f;
+            }
+
             yield return new WaitForEndOfFrame();
 
-            // 2. Capture screenshot ke persistentDataPath / format tanggal
-            string fileName = $"SushiSort_{DateTime.Now:yyyyMMdd_HHmmss}.png";
-            ScreenCapture.CaptureScreenshot(fileName);
-            Debug.Log($"Screenshot saved: {fileName}");
+            // Buat Texture2D dari layar
+            Texture2D screenTexture = new Texture2D(Screen.width, Screen.height, TextureFormat.RGB24, false);
+            screenTexture.ReadPixels(new Rect(0, 0, Screen.width, Screen.height), 0, 0);
+            screenTexture.Apply();
 
-            // 3. Tunggu 1 frame lalu buka kembali setting panel
-            yield return null;
+            // Simpan screenshot secara hybrid lintas platform
+            string filename = "SushiSort_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss") + ".png";
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+            byte[] bytes = screenTexture.EncodeToPNG();
+            DownloadFileFromMemory(bytes, bytes.Length, filename);
+#elif (UNITY_ANDROID || UNITY_IOS) && !UNITY_EDITOR
+            NativeGallery.SaveImageToGallery(
+                screenTexture,
+                "Push Pop Sushi Sort",
+                filename,
+                (success, path) => Debug.Log($"Save result: {success}, Path: {path}")
+            );
+#else
+            byte[] bytes = screenTexture.EncodeToPNG();
+            string fullPath = System.IO.Path.Combine(Application.persistentDataPath, filename);
+            System.IO.File.WriteAllBytes(fullPath, bytes);
+            Debug.Log($"Screenshot saved to: {fullPath}");
+#endif
+
+            // Bersihkan texture dari memory
+            Destroy(screenTexture);
+
+            // Tampilkan kembali UI
             if (settingPanel != null && wasSettingOpen)
             {
                 settingPanel.SetActive(true);
                 settingPanel.transform.localScale = Vector3.one;
             }
 
-            // 4. Tampilkan pesan feedback (tanpa emoji Unicode agar bebas warning)
+            TriggerScreenshotFlash();
             ShowFeedbackToast("Screenshot Saved!");
+            _screenshotCoroutine = null;
         }
 
         /// <summary>
