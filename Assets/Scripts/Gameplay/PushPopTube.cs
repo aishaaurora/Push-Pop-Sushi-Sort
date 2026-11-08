@@ -660,6 +660,20 @@ namespace SushiSort.Gameplay
         }
 
         /// <summary>
+        /// Updates the tube's world position and refreshes its cached local base position.
+        /// </summary>
+        public void UpdateBasePosition(Vector3 worldPos)
+        {
+            if (_shakeCoroutine != null)
+            {
+                StopCoroutine(_shakeCoroutine);
+                _shakeCoroutine = null;
+            }
+            transform.position = worldPos;
+            _originalLocalPos = transform.localPosition;
+        }
+
+        /// <summary>
         /// Triggers invalid move shake animation on this tube.
         /// </summary>
         public void ShakeInvalid()
@@ -667,6 +681,11 @@ namespace SushiSort.Gameplay
             if (_shakeCoroutine != null)
             {
                 StopCoroutine(_shakeCoroutine);
+                transform.localPosition = _originalLocalPos;
+            }
+            else
+            {
+                _originalLocalPos = transform.localPosition;
             }
 
             _shakeCoroutine = StartCoroutine(AnimateShakeRoutine());
@@ -833,8 +852,45 @@ namespace SushiSort.Gameplay
 
         #endregion
 
-        private void ClearAllPieces()
+        /// <summary>
+        /// Triggers the peek animation on all unrevealed mystery sushi pieces inside this tube.
+        /// Returns the number of mystery pieces triggered.
+        /// </summary>
+        public int TriggerMysteryPeek(float duration = 1.5f)
         {
+            int peekedCount = 0;
+            foreach (var piece in _sushiStack)
+            {
+                if (piece != null && piece.IsMystery)
+                {
+                    piece.TriggerPeek(duration);
+                    peekedCount++;
+                }
+            }
+            return peekedCount;
+        }
+
+        /// <summary>
+        /// Stops any active animations on this tube and destroys all sushi pieces in its stack and slots.
+        /// </summary>
+        public void ClearAllPieces()
+        {
+            if (_shakeCoroutine != null)
+            {
+                StopCoroutine(_shakeCoroutine);
+                _shakeCoroutine = null;
+            }
+            if (_plungerCoroutine != null)
+            {
+                StopCoroutine(_plungerCoroutine);
+                _plungerCoroutine = null;
+            }
+            if (_celebrationCoroutine != null)
+            {
+                StopCoroutine(_celebrationCoroutine);
+                _celebrationCoroutine = null;
+            }
+
             while (_sushiStack.Count > 0)
             {
                 var piece = _sushiStack.Pop();

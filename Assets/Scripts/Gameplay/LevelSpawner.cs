@@ -38,6 +38,7 @@ namespace SushiSort.Gameplay
         // Public Getters
         public IReadOnlyList<PushPopTube> SpawnedTubes => _spawnedTubes;
         public int SpawnedTubeCount => _spawnedTubes.Count;
+        public Transform TubesContainer => tubesContainer;
 
         /// <summary>
         /// Clears previously spawned tubes and generates a new layout matching levelData.
@@ -95,6 +96,62 @@ namespace SushiSort.Gameplay
         }
 
         /// <summary>
+        /// Spawns 1 additional empty unlocked tube for the "+1 Tube" booster and re-centers the entire tube grid.
+        /// </summary>
+        public PushPopTube SpawnExtraEmptyTube(LevelDatabaseSO database, Transform sushiContainer = null, List<PushPopTube> targetList = null)
+        {
+            if (tubePrefab == null)
+            {
+                Debug.LogError("[LevelSpawner] TubePrefab is not assigned in the inspector!");
+                return null;
+            }
+
+            Transform container = tubesContainer != null ? tubesContainer : transform;
+            Vector3 anchorPos = spawnAnchorPoint != null ? spawnAnchorPoint.position : transform.position;
+
+            PushPopTube extraTube = Instantiate(tubePrefab, anchorPos, Quaternion.identity, container);
+            extraTube.gameObject.SetActive(true);
+
+            TubeInitialData emptyData = new TubeInitialData(new List<SushiType>(), false, SushiType.None, 0);
+            extraTube.Initialize(emptyData, database, sushiContainer);
+
+            if (!_spawnedTubes.Contains(extraTube))
+            {
+                _spawnedTubes.Add(extraTube);
+            }
+
+            if (targetList != null && !targetList.Contains(extraTube))
+            {
+                targetList.Add(extraTube);
+            }
+
+            IList<PushPopTube> listToRecenter = targetList != null && targetList.Count > 0 ? (IList<PushPopTube>)targetList : _spawnedTubes;
+            extraTube.name = $"Tube_{listToRecenter.Count - 1:00}_Booster";
+
+            RecenterTubes(listToRecenter);
+            return extraTube;
+        }
+
+        /// <summary>
+        /// Recalculates centered layout coordinates and updates the positions of all active tubes in the list.
+        /// </summary>
+        public void RecenterTubes(IList<PushPopTube> tubes)
+        {
+            if (tubes == null || tubes.Count == 0) return;
+
+            Vector3 anchorPos = spawnAnchorPoint != null ? spawnAnchorPoint.position : transform.position;
+            List<Vector3> layoutPositions = CalculateLayoutPositions(tubes.Count, anchorPos);
+
+            for (int i = 0; i < tubes.Count; i++)
+            {
+                PushPopTube tube = tubes[i];
+                if (tube == null) continue;
+
+                tube.UpdateBasePosition(layoutPositions[i]);
+            }
+        }
+
+        /// <summary>
         /// Calculates centered world coordinates for each tube based on 1-row or 2-row layout rules.
         /// </summary>
         private List<Vector3> CalculateLayoutPositions(int totalTubes, Vector3 anchor)
@@ -148,7 +205,7 @@ namespace SushiSort.Gameplay
         }
 
         /// <summary>
-        /// Destroys all currently spawned tube GameObjects.
+        /// Destroys all currently spawned tube GameObjects and their sushi children.
         /// </summary>
         public void ClearTubes()
         {
@@ -156,11 +213,25 @@ namespace SushiSort.Gameplay
             {
                 if (_spawnedTubes[i] != null)
                 {
+                    _spawnedTubes[i].ClearAllPieces();
                     Destroy(_spawnedTubes[i].gameObject);
                 }
             }
 
             _spawnedTubes.Clear();
+
+            // Also ensure any lingering tube/sushi objects inside tubesContainer are destroyed
+            if (tubesContainer != null && tubesContainer != transform)
+            {
+                for (int i = tubesContainer.childCount - 1; i >= 0; i--)
+                {
+                    Transform child = tubesContainer.GetChild(i);
+                    if (child != null)
+                    {
+                        Destroy(child.gameObject);
+                    }
+                }
+            }
         }
 
         private void OnDestroy()

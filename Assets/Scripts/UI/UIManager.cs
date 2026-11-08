@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.SceneManagement;
 using TMPro;
 using SushiSort.Core;
 using SushiSort.Utilities;
@@ -15,17 +16,83 @@ namespace SushiSort.UI
     /// </summary>
     public class UIManager : MonoBehaviour
     {
-        public static UIManager Instance { get; private set; }
+        private static UIManager _instance;
+        public static UIManager Instance
+        {
+            get
+            {
+                if (_instance == null)
+                {
+                    _instance = FindObjectOfType<UIManager>(true);
+                    if (_instance != null && !_instance.gameObject.activeInHierarchy)
+                    {
+                        _instance.gameObject.SetActive(true);
+                    }
+                }
+                return _instance;
+            }
+            private set => _instance = value;
+        }
 
         [Header("Header HUD")]
         [Tooltip("Header text displaying the current level number and difficulty badge.")]
         [SerializeField] private TextMeshProUGUI txtLevelTitle;
+        [SerializeField] private TextMeshProUGUI txtDifficulty;
 
         [Tooltip("Button in header to restart current level immediately.")]
         [SerializeField] private Button btnRestartHeader;
 
         [Tooltip("Button in header to capture a screenshot.")]
         [SerializeField] private Button btnScreenshotHeader;
+
+        [Header("Navigation & Panels")]
+        [Tooltip("Button to return to Main Menu from gameplay or popups.")]
+        [SerializeField] private Button btnHome;
+
+        [Tooltip("Root panel for Main Menu (used if single-scene UI panel toggle).")]
+        [SerializeField] private GameObject mainMenuPanel;
+
+        [Tooltip("Root panel for Gameplay HUD (used if single-scene UI panel toggle).")]
+        [SerializeField] private GameObject gameplayPanel;
+
+        [Tooltip("Main Menu scene name when using multi-scene navigation.")]
+        [SerializeField] private string mainMenuSceneName = "MainMenu";
+
+        [Header("Coin Economy UI")]
+        [Tooltip("Coin counter text displayed in the Main Menu.")]
+        [SerializeField] private TextMeshProUGUI txtCoinMainMenu;
+
+        [Tooltip("Coin counter text displayed in the Gameplay HUD.")]
+        [SerializeField] private TextMeshProUGUI txtCoinGameplay;
+
+        [Header("Booster (+1 Tube) UI")]
+        [Tooltip("Confirmation popup panel for buying +1 Empty Tube booster.")]
+        [SerializeField] private GameObject popupBooster;
+
+        [Tooltip("Green plus button in gameplay HUD to open the booster popup.")]
+        [SerializeField] private Button btnHudBooster;
+
+        [Tooltip("Red X button inside booster popup to close it.")]
+        [SerializeField] private Button btnClosePopupBooster;
+
+        [Tooltip("Confirm purchase button (30 coins) inside booster popup.")]
+        [SerializeField] private Button btnConfirmBuyBooster;
+
+        [Header("Setting Panel")]
+        [Tooltip("Root GameObject or RectTransform for the Setting popup.")]
+        [SerializeField] private GameObject settingPanel;
+
+        [Tooltip("Button to open the setting panel.")]
+        [SerializeField] private Button btnOpenSetting;
+
+        [Tooltip("Button to close the setting panel.")]
+        [SerializeField] private Button btnCloseSetting;
+
+        [Tooltip("Button inside setting panel to take a screenshot.")]
+        [SerializeField] private Button btnTakeScreenshot;
+
+        [Tooltip("Optional text label for toast feedback notification.")]
+        [SerializeField] private TextMeshProUGUI txtToastFeedback;
 
         [Header("Win Panel")]
         [Tooltip("Root GameObject or RectTransform for the Victory popup.")]
@@ -60,8 +127,11 @@ namespace SushiSort.UI
         // Coroutine trackers
         private Coroutine _winAnimCoroutine;
         private Coroutine _loseAnimCoroutine;
+        private Coroutine _settingAnimCoroutine;
+        private Coroutine _boosterAnimCoroutine;
         private Coroutine _flashCoroutine;
         private Coroutine _toastCoroutine;
+        private Coroutine _screenshotCoroutine;
 
         private void Awake()
         {
@@ -79,15 +149,47 @@ namespace SushiSort.UI
             if (btnScreenshotHeader != null)
                 btnScreenshotHeader.onClick.AddListener(OnScreenshotClicked);
 
+            if (btnOpenSetting != null)
+                btnOpenSetting.onClick.AddListener(OnOpenSettingClicked);
+
+            if (btnCloseSetting != null)
+                btnCloseSetting.onClick.AddListener(OnCloseSettingClicked);
+
+            if (btnTakeScreenshot != null)
+                btnTakeScreenshot.onClick.AddListener(OnTakeScreenshotClicked);
+
+            if (btnHudBooster != null)
+                btnHudBooster.onClick.AddListener(OnOpenBoosterClicked);
+
+            if (btnClosePopupBooster != null)
+                btnClosePopupBooster.onClick.AddListener(OnCloseBoosterClicked);
+
+            if (btnConfirmBuyBooster != null)
+                btnConfirmBuyBooster.onClick.AddListener(OnConfirmBuyBoosterClicked);
+
             if (btnNextLevel != null)
                 btnNextLevel.onClick.AddListener(OnNextLevelClicked);
 
             if (btnRetryLose != null)
                 btnRetryLose.onClick.AddListener(OnRetryClicked);
 
+            if (btnHome != null)
+            {
+                btnHome.onClick.RemoveAllListeners();
+                btnHome.onClick.AddListener(GoToMainMenu);
+            }
+
+            // Auto-bind any Home buttons inside popups or canvases
+            BindHomeButtonsInRoot(winPanelRoot);
+            BindHomeButtonsInRoot(losePanelRoot);
+            BindHomeButtonsInRoot(settingPanel);
+            BindAllSceneHomeButtons();
+
             // Hide popups initially
             HideImmediate(winPanelRoot);
             HideImmediate(losePanelRoot);
+            HideImmediate(settingPanel);
+            HideImmediate(popupBooster);
             HideImmediate(toastNotification);
 
             if (screenshotFlashOverlay != null)
@@ -103,6 +205,7 @@ namespace SushiSort.UI
             GamePlayManager.OnLevelCompleted += HandleLevelCompleted;
             GamePlayManager.OnGameOver += HandleGameOver;
             GamePlayManager.OnDeadlockDetected += HandleGameOver;
+            CurrencyManager.OnCoinsChanged += HandleCoinsChanged;
         }
 
         private void OnDisable()
@@ -111,11 +214,13 @@ namespace SushiSort.UI
             GamePlayManager.OnLevelCompleted -= HandleLevelCompleted;
             GamePlayManager.OnGameOver -= HandleGameOver;
             GamePlayManager.OnDeadlockDetected -= HandleGameOver;
+            CurrencyManager.OnCoinsChanged -= HandleCoinsChanged;
         }
 
         private void Start()
         {
             UpdateHeaderTitle();
+            UpdateCoinTexts(CurrencyManager.Instance != null ? CurrencyManager.Instance.GetCoins() : 0);
         }
 
         #region Event Handlers
@@ -123,8 +228,17 @@ namespace SushiSort.UI
         private void HandleLevelStarted()
         {
             UpdateHeaderTitle();
+            UpdateCoinTexts(CurrencyManager.Instance != null ? CurrencyManager.Instance.GetCoins() : 0);
             HideImmediate(winPanelRoot);
             HideImmediate(losePanelRoot);
+            HideImmediate(settingPanel);
+            HideImmediate(popupBooster);
+
+            if (btnHudBooster != null)
+            {
+                bool boosterUsed = GamePlayManager.Instance != null && GamePlayManager.Instance.IsBoosterUsedThisLevel;
+                btnHudBooster.interactable = !boosterUsed;
+            }
         }
 
         private void HandleLevelCompleted()
@@ -135,6 +249,119 @@ namespace SushiSort.UI
         private void HandleGameOver()
         {
             ShowLosePanel();
+        }
+
+        private void HandleCoinsChanged(int newCoinAmount)
+        {
+            UpdateCoinTexts(newCoinAmount);
+        }
+
+        #endregion
+
+        #region Coin Economy UI
+
+        /// <summary>
+        /// Synchronizes coin display texts with the latest balance in CurrencyManager.
+        /// </summary>
+        public void UpdateCoinDisplay()
+        {
+            int coins = CurrencyManager.Instance != null ? CurrencyManager.Instance.GetCoins() : 0;
+            UpdateCoinTexts(coins);
+        }
+
+        /// <summary>
+        /// Refreshes both Main Menu and Gameplay HUD coin text labels in real-time.
+        /// </summary>
+        public void UpdateCoinTexts(int coinAmount)
+        {
+            string formatted = coinAmount.ToString();
+
+            if (txtCoinMainMenu != null)
+            {
+                txtCoinMainMenu.text = formatted;
+            }
+
+            if (txtCoinGameplay != null)
+            {
+                txtCoinGameplay.text = formatted;
+            }
+        }
+
+        /// <summary>
+        /// Refreshes coin and level display texts when transitioning to the Main Menu.
+        /// </summary>
+        public void UpdateMainMenuDisplay()
+        {
+            UpdateCoinDisplay();
+            UpdateHeaderTitle();
+        }
+
+        #endregion
+
+        #region Booster (+1 Tube) Popup
+
+        /// <summary>
+        /// Opens the +1 Tube booster confirmation popup.
+        /// </summary>
+        public void OpenBoosterPopup()
+        {
+            if (popupBooster == null) return;
+
+            popupBooster.SetActive(true);
+            if (_boosterAnimCoroutine != null) StopCoroutine(_boosterAnimCoroutine);
+            _boosterAnimCoroutine = StartCoroutine(AnimatePopupOpen(popupBooster.transform));
+        }
+
+        /// <summary>
+        /// Closes the +1 Tube booster confirmation popup.
+        /// </summary>
+        public void CloseBoosterPopup()
+        {
+            if (popupBooster == null) return;
+
+            if (_boosterAnimCoroutine != null) StopCoroutine(_boosterAnimCoroutine);
+            _boosterAnimCoroutine = StartCoroutine(AnimatePopupClose(popupBooster.transform, () =>
+            {
+                popupBooster.SetActive(false);
+            }));
+        }
+
+        private void OnOpenBoosterClicked()
+        {
+            OpenBoosterPopup();
+        }
+
+        private void OnCloseBoosterClicked()
+        {
+            CloseBoosterPopup();
+        }
+
+        private void OnConfirmBuyBoosterClicked()
+        {
+            if (GamePlayManager.Instance == null) return;
+
+            bool success = GamePlayManager.Instance.TryPurchaseExtraTubeBooster();
+            if (success)
+            {
+                if (_boosterAnimCoroutine != null) StopCoroutine(_boosterAnimCoroutine);
+                if (popupBooster != null)
+                {
+                    popupBooster.transform.localScale = Vector3.zero;
+                    popupBooster.SetActive(false);
+                }
+
+                if (btnHudBooster != null)
+                {
+                    btnHudBooster.interactable = false;
+                }
+
+                // Also hide lose/deadlock panel if player used booster to recover
+                HideImmediate(losePanelRoot);
+            }
+            else
+            {
+                ShowFeedbackToast("Not enough coins!");
+            }
         }
 
         #endregion
@@ -151,44 +378,278 @@ namespace SushiSort.UI
 
             bool isHard = GamePlayManager.Instance != null && GamePlayManager.Instance.IsHardLevel;
 
-            txtLevelTitle.text = isHard 
-                ? $"Level {levelNum} <color=#FF5252>[HARD]</color>" 
-                : $"Level {levelNum}";
+            txtLevelTitle.text = $"Level {levelNum}";
+            if (txtDifficulty != null)
+                {
+                    txtDifficulty.text = isHard ? "<color=#820400>[HARD]</color>" : "";
+                }
+        }
+
+        #endregion
+
+        #region Setting Popup
+
+        /// <summary>
+        /// Opens the setting panel with a smooth bouncy animation.
+        /// </summary>
+        public void OpenSettingPanel()
+        {
+            if (settingPanel == null) return;
+
+            settingPanel.SetActive(true);
+            if (_settingAnimCoroutine != null) StopCoroutine(_settingAnimCoroutine);
+            _settingAnimCoroutine = StartCoroutine(AnimatePopupOpen(settingPanel.transform));
+        }
+
+        /// <summary>
+        /// Closes the setting panel with a snappy shrink animation.
+        /// </summary>
+        public void CloseSettingPanel()
+        {
+            if (settingPanel == null) return;
+
+            if (_settingAnimCoroutine != null) StopCoroutine(_settingAnimCoroutine);
+            _settingAnimCoroutine = StartCoroutine(AnimatePopupClose(settingPanel.transform, () =>
+            {
+                settingPanel.SetActive(false);
+            }));
+        }
+
+        private void OnOpenSettingClicked()
+        {
+            OpenSettingPanel();
+        }
+
+        private void OnCloseSettingClicked()
+        {
+            CloseSettingPanel();
         }
 
         #endregion
 
         #region Win & Lose Popups
 
-        private void ShowWinPanel()
+        public void ShowWinPanel()
         {
-            if (winPanelRoot == null) return;
+            if (!gameObject.activeInHierarchy)
+            {
+                gameObject.SetActive(true);
+            }
+
+            if (winPanelRoot == null)
+            {
+                winPanelRoot = FindScenePanel("Win_Panel") ?? FindScenePanel("WinPanel");
+            }
+
+            if (winPanelRoot == null)
+            {
+                Debug.LogWarning("[UIManager] winPanelRoot reference is missing!");
+                return;
+            }
+
+            // Ensure parent hierarchy (e.g. Canvas / Popups) is active
+            EnsureParentHierarchyActive(winPanelRoot.transform);
+
+            // Sync latest coin display
+            UpdateCoinDisplay();
 
             if (txtWinTitle != null)
             {
-                txtWinTitle.text = "Order Completed! 🍣";
+                txtWinTitle.text = "Order Completed!";
             }
 
-            if (_winAnimCoroutine != null) StopCoroutine(_winAnimCoroutine);
-            _winAnimCoroutine = StartCoroutine(AnimatePopupOpen(winPanelRoot.transform));
+            // Ensure Next Level and Home button listeners are bound
+            if (btnNextLevel == null)
+            {
+                btnNextLevel = winPanelRoot.GetComponentInChildren<Button>(true);
+            }
+            if (btnNextLevel != null)
+            {
+                btnNextLevel.onClick.RemoveListener(OnNextLevelClicked);
+                btnNextLevel.onClick.AddListener(OnNextLevelClicked);
+            }
+            BindHomeButtonsInRoot(winPanelRoot);
+
+            // If already open and active, just ensure scale is 1 and return
+            if (winPanelRoot.activeSelf && _winAnimCoroutine != null)
+            {
+                return;
+            }
+
+            // Immediately activate panel and set valid scale so it is always visible
+            winPanelRoot.SetActive(true);
+            winPanelRoot.transform.localScale = Vector3.one;
+
+            if (gameObject.activeInHierarchy)
+            {
+                if (_winAnimCoroutine != null) StopCoroutine(_winAnimCoroutine);
+                _winAnimCoroutine = StartCoroutine(AnimatePopupOpen(winPanelRoot.transform));
+            }
         }
 
-        private void ShowLosePanel()
+        public void ShowLosePanel()
         {
+            if (!gameObject.activeInHierarchy)
+            {
+                gameObject.SetActive(true);
+            }
+
+            if (losePanelRoot == null)
+            {
+                losePanelRoot = FindScenePanel("Lose_Panel") ?? FindScenePanel("LosePanel");
+            }
+
             if (losePanelRoot == null) return;
+
+            EnsureParentHierarchyActive(losePanelRoot.transform);
+            UpdateCoinDisplay();
 
             if (txtLoseReason != null)
             {
-                txtLoseReason.text = "No More Moves! 🥢";
+                txtLoseReason.text = "No More Moves!";
             }
 
-            if (_loseAnimCoroutine != null) StopCoroutine(_loseAnimCoroutine);
-            _loseAnimCoroutine = StartCoroutine(AnimatePopupOpen(losePanelRoot.transform));
+            if (btnRetryLose == null)
+            {
+                btnRetryLose = losePanelRoot.GetComponentInChildren<Button>(true);
+            }
+            if (btnRetryLose != null)
+            {
+                btnRetryLose.onClick.RemoveListener(OnRetryClicked);
+                btnRetryLose.onClick.AddListener(OnRetryClicked);
+            }
+            BindHomeButtonsInRoot(losePanelRoot);
+
+            if (losePanelRoot.activeSelf && _loseAnimCoroutine != null)
+            {
+                return;
+            }
+
+            losePanelRoot.SetActive(true);
+            losePanelRoot.transform.localScale = Vector3.one;
+
+            if (gameObject.activeInHierarchy)
+            {
+                if (_loseAnimCoroutine != null) StopCoroutine(_loseAnimCoroutine);
+                _loseAnimCoroutine = StartCoroutine(AnimatePopupOpen(losePanelRoot.transform));
+            }
+        }
+
+        private void EnsureParentHierarchyActive(Transform target)
+        {
+            Transform current = target != null ? target.parent : null;
+            while (current != null)
+            {
+                if (!current.gameObject.activeSelf)
+                {
+                    current.gameObject.SetActive(true);
+                }
+                current = current.parent;
+            }
+        }
+
+        private GameObject FindScenePanel(string panelName)
+        {
+            Canvas[] canvases = FindObjectsOfType<Canvas>(true);
+            foreach (var canvas in canvases)
+            {
+                Transform found = FindDeepChild(canvas.transform, panelName);
+                if (found != null) return found.gameObject;
+            }
+            return null;
+        }
+
+        private Transform FindDeepChild(Transform parent, string childName)
+        {
+            foreach (Transform child in parent)
+            {
+                if (string.Equals(child.name, childName, StringComparison.OrdinalIgnoreCase))
+                    return child;
+                Transform found = FindDeepChild(child, childName);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        private void BindHomeButtonsInRoot(GameObject root)
+        {
+            if (root == null) return;
+
+            Button[] buttons = root.GetComponentsInChildren<Button>(true);
+            for (int i = 0; i < buttons.Length; i++)
+            {
+                Button b = buttons[i];
+                if (b == null) continue;
+
+                string objName = b.gameObject.name;
+                if (b == btnHome ||
+                    string.Equals(objName, "Home", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(objName, "Btn_Home", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(objName, "BtnHome", StringComparison.OrdinalIgnoreCase))
+                {
+                    b.onClick.RemoveAllListeners();
+                    b.onClick.AddListener(GoToMainMenu);
+                }
+            }
+        }
+
+        private void BindAllSceneHomeButtons()
+        {
+            Canvas[] canvases = FindObjectsOfType<Canvas>(true);
+            for (int i = 0; i < canvases.Length; i++)
+            {
+                if (canvases[i] != null)
+                {
+                    BindHomeButtonsInRoot(canvases[i].gameObject);
+                }
+            }
+        }
+
+        private void StopAllUICoroutines()
+        {
+            if (_winAnimCoroutine != null) { StopCoroutine(_winAnimCoroutine); _winAnimCoroutine = null; }
+            if (_loseAnimCoroutine != null) { StopCoroutine(_loseAnimCoroutine); _loseAnimCoroutine = null; }
+            if (_settingAnimCoroutine != null) { StopCoroutine(_settingAnimCoroutine); _settingAnimCoroutine = null; }
+            if (_boosterAnimCoroutine != null) { StopCoroutine(_boosterAnimCoroutine); _boosterAnimCoroutine = null; }
+            if (_flashCoroutine != null) { StopCoroutine(_flashCoroutine); _flashCoroutine = null; }
+            if (_toastCoroutine != null) { StopCoroutine(_toastCoroutine); _toastCoroutine = null; }
+            if (_screenshotCoroutine != null) { StopCoroutine(_screenshotCoroutine); _screenshotCoroutine = null; }
+
+            if (screenshotFlashOverlay != null)
+            {
+                screenshotFlashOverlay.alpha = 0f;
+                screenshotFlashOverlay.blocksRaycasts = false;
+            }
         }
 
         private void HideImmediate(GameObject panel)
         {
             if (panel == null) return;
+            if (panel == winPanelRoot && _winAnimCoroutine != null)
+            {
+                StopCoroutine(_winAnimCoroutine);
+                _winAnimCoroutine = null;
+            }
+            else if (panel == losePanelRoot && _loseAnimCoroutine != null)
+            {
+                StopCoroutine(_loseAnimCoroutine);
+                _loseAnimCoroutine = null;
+            }
+            else if (panel == settingPanel && _settingAnimCoroutine != null)
+            {
+                StopCoroutine(_settingAnimCoroutine);
+                _settingAnimCoroutine = null;
+            }
+            else if (panel == popupBooster && _boosterAnimCoroutine != null)
+            {
+                StopCoroutine(_boosterAnimCoroutine);
+                _boosterAnimCoroutine = null;
+            }
+            else if (panel == toastNotification && _toastCoroutine != null)
+            {
+                StopCoroutine(_toastCoroutine);
+                _toastCoroutine = null;
+            }
             panel.transform.localScale = Vector3.zero;
             panel.SetActive(false);
         }
@@ -196,6 +657,53 @@ namespace SushiSort.UI
         #endregion
 
         #region Button Callbacks
+
+        /// <summary>
+        /// Cleans up active gameplay/UI state and loads the "MainMenu" scene.
+        /// </summary>
+        public void GoToMainMenu()
+        {
+            Time.timeScale = 1f;
+            StopAllUICoroutines();
+
+            if (GamePlayManager.Instance != null)
+            {
+                GamePlayManager.Instance.CleanupCurrentLevel();
+            }
+
+            SceneManager.LoadScene("MainMenu");
+        }
+
+        /// <summary>
+        /// Handles Home button click from gameplay HUD or pause/win/lose/setting popups.
+        /// Safely stops active UI/gameplay coroutines, cleans up the active level, and transitions to Main Menu.
+        /// </summary>
+        public void OnHomeButtonClicked()
+        {
+            if (mainMenuPanel != null && gameplayPanel != null)
+            {
+                Time.timeScale = 1f;
+                StopAllUICoroutines();
+                HideImmediate(winPanelRoot);
+                HideImmediate(losePanelRoot);
+                HideImmediate(settingPanel);
+                HideImmediate(popupBooster);
+                HideImmediate(toastNotification);
+
+                if (GamePlayManager.Instance != null)
+                {
+                    GamePlayManager.Instance.CleanupCurrentLevel();
+                }
+
+                gameplayPanel.SetActive(false);
+                mainMenuPanel.SetActive(true);
+                UpdateMainMenuDisplay();
+            }
+            else
+            {
+                GoToMainMenu();
+            }
+        }
 
         private void OnRestartClicked()
         {
@@ -207,49 +715,113 @@ namespace SushiSort.UI
 
         private void OnNextLevelClicked()
         {
-            if (_winAnimCoroutine != null) StopCoroutine(_winAnimCoroutine);
-            _winAnimCoroutine = StartCoroutine(AnimatePopupClose(winPanelRoot.transform, () =>
+            if (_winAnimCoroutine != null)
             {
+                StopCoroutine(_winAnimCoroutine);
+                _winAnimCoroutine = null;
+            }
+
+            if (winPanelRoot != null && gameObject.activeInHierarchy)
+            {
+                _winAnimCoroutine = StartCoroutine(AnimatePopupClose(winPanelRoot.transform, () =>
+                {
+                    _winAnimCoroutine = null;
+                    if (GamePlayManager.Instance != null)
+                    {
+                        GamePlayManager.Instance.LoadNextLevel();
+                    }
+                }));
+            }
+            else
+            {
+                HideImmediate(winPanelRoot);
                 if (GamePlayManager.Instance != null)
                 {
                     GamePlayManager.Instance.LoadNextLevel();
                 }
-            }));
+            }
         }
 
         private void OnRetryClicked()
         {
-            if (_loseAnimCoroutine != null) StopCoroutine(_loseAnimCoroutine);
-            _loseAnimCoroutine = StartCoroutine(AnimatePopupClose(losePanelRoot.transform, () =>
+            if (_loseAnimCoroutine != null)
             {
+                StopCoroutine(_loseAnimCoroutine);
+                _loseAnimCoroutine = null;
+            }
+
+            if (losePanelRoot != null && gameObject.activeInHierarchy)
+            {
+                _loseAnimCoroutine = StartCoroutine(AnimatePopupClose(losePanelRoot.transform, () =>
+                {
+                    _loseAnimCoroutine = null;
+                    if (GamePlayManager.Instance != null)
+                    {
+                        GamePlayManager.Instance.RestartCurrentLevel();
+                    }
+                }));
+            }
+            else
+            {
+                HideImmediate(losePanelRoot);
                 if (GamePlayManager.Instance != null)
                 {
                     GamePlayManager.Instance.RestartCurrentLevel();
                 }
-            }));
+            }
+        }
+
+        private void OnTakeScreenshotClicked()
+        {
+            if (_screenshotCoroutine != null) StopCoroutine(_screenshotCoroutine);
+            _screenshotCoroutine = StartCoroutine(CaptureScreenshotCleanRoutine());
         }
 
         private void OnScreenshotClicked()
         {
-            TriggerScreenshotFlash();
-
-            if (ScreenshotService.Instance != null)
-            {
-                ScreenshotService.Instance.TakeScreenshot(OnScreenshotSaved);
-            }
-            else
-            {
-                // Fallback direct capture if service is not attached
-                string time = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                string path = System.IO.Path.Combine(Application.persistentDataPath, $"PushPopSushi_{time}.png");
-                ScreenCapture.CaptureScreenshot(path);
-                OnScreenshotSaved(path);
-            }
+            OnTakeScreenshotClicked();
         }
 
-        private void OnScreenshotSaved(string path)
+        /// <summary>
+        /// Captures a clean screenshot without setting panel UI interference.
+        /// </summary>
+        private IEnumerator CaptureScreenshotCleanRoutine()
         {
-            ShowToast("Screenshot saved! 📷");
+            TriggerScreenshotFlash();
+
+            // 1. Sembunyikan panel setting sementara jika aktif
+            bool wasSettingOpen = settingPanel != null && settingPanel.activeSelf;
+            if (settingPanel != null)
+            {
+                settingPanel.SetActive(false);
+            }
+
+            yield return new WaitForEndOfFrame();
+
+            // 2. Capture screenshot ke persistentDataPath / format tanggal
+            string fileName = $"SushiSort_{DateTime.Now:yyyyMMdd_HHmmss}.png";
+            ScreenCapture.CaptureScreenshot(fileName);
+            Debug.Log($"Screenshot saved: {fileName}");
+
+            // 3. Tunggu 1 frame lalu buka kembali setting panel
+            yield return null;
+
+            if (settingPanel != null && wasSettingOpen)
+            {
+                settingPanel.SetActive(true);
+                settingPanel.transform.localScale = Vector3.one;
+            }
+
+            // 4. Tampilkan pesan feedback (tanpa emoji Unicode agar bebas warning)
+            ShowFeedbackToast("Screenshot Saved!");
+        }
+
+        /// <summary>
+        /// Displays clean toast feedback without missing unicode glyph warnings.
+        /// </summary>
+        public void ShowFeedbackToast(string message = "Screenshot Saved!")
+        {
+            ShowToast(message);
         }
 
         #endregion
@@ -284,6 +856,11 @@ namespace SushiSort.UI
             }
 
             popupTransform.localScale = Vector3.one;
+
+            if (winPanelRoot != null && popupTransform == winPanelRoot.transform)
+                _winAnimCoroutine = null;
+            else if (losePanelRoot != null && popupTransform == losePanelRoot.transform)
+                _loseAnimCoroutine = null;
         }
 
         /// <summary>
@@ -342,12 +919,17 @@ namespace SushiSort.UI
 
         private void ShowToast(string message)
         {
-            if (toastNotification == null) return;
+            if (txtToastFeedback != null)
+            {
+                txtToastFeedback.text = message;
+            }
 
             if (txtToastMessage != null)
             {
                 txtToastMessage.text = message;
             }
+
+            if (toastNotification == null) return;
 
             if (_toastCoroutine != null) StopCoroutine(_toastCoroutine);
             _toastCoroutine = StartCoroutine(AnimateToastRoutine());

@@ -40,6 +40,8 @@ namespace SushiSort.Gameplay
         private MonoBehaviour _movementRunner;
         private Coroutine _revealCoroutine;
         private MonoBehaviour _revealRunner;
+        private Coroutine _peekCoroutine;
+        private MonoBehaviour _peekRunner;
 
         // Cached original scale configured in prefab
         private Vector3 _originalMysteryScale = Vector3.one;
@@ -377,6 +379,14 @@ namespace SushiSort.Gameplay
                 gameObject.SetActive(true);
             }
 
+            // Stop any active peek coroutine and reset wrapper transform before official reveal
+            SafeStopCoroutine(ref _peekCoroutine, ref _peekRunner);
+            if (mysteryWrapper != null)
+            {
+                mysteryWrapper.transform.localPosition = Vector3.zero;
+                mysteryWrapper.transform.localRotation = Quaternion.identity;
+            }
+
             SafeStopCoroutine(ref _revealCoroutine, ref _revealRunner);
             _revealCoroutine = SafeStartCoroutine(AnimateRevealRoutine(onComplete), out _revealRunner);
 
@@ -396,6 +406,181 @@ namespace SushiSort.Gameplay
                 isMystery = false;
                 UpdateVisualState();
                 onComplete?.Invoke();
+            }
+        }
+
+        /// <summary>
+        /// Temporarily wiggles and opens/hides the mystery wrapper so the player can peek at the hidden sushi inside.
+        /// Automatically restores the mystery wrapper after the specified duration if not officially revealed.
+        /// </summary>
+        public void TriggerPeek(float duration = 1.5f)
+        {
+            if (!isMystery || mysteryWrapper == null)
+            {
+                return;
+            }
+
+            if (!gameObject.activeInHierarchy)
+            {
+                gameObject.SetActive(true);
+            }
+
+            SafeStopCoroutine(ref _peekCoroutine, ref _peekRunner);
+            _peekCoroutine = SafeStartCoroutine(AnimatePeekRoutine(duration), out _peekRunner);
+        }
+
+        private IEnumerator AnimatePeekRoutine(float duration)
+        {
+            if (!isMystery || mysteryWrapper == null)
+            {
+                _peekCoroutine = null;
+                _peekRunner = null;
+                yield break;
+            }
+
+            Vector3 baseScale = _originalMysteryScale != Vector3.zero
+                ? _originalMysteryScale
+                : mysteryWrapper.transform.localScale;
+
+            mysteryWrapper.SetActive(true);
+            mysteryWrapper.transform.localPosition = Vector3.zero;
+            mysteryWrapper.transform.localRotation = Quaternion.identity;
+            mysteryWrapper.transform.localScale = baseScale;
+
+            // 1. Wiggle / shake the mystery wrapper briefly before opening
+            float wiggleDuration = 0.25f;
+            float wiggleElapsed = 0f;
+            while (wiggleElapsed < wiggleDuration)
+            {
+                if (!isMystery || mysteryWrapper == null)
+                {
+                    _peekCoroutine = null;
+                    _peekRunner = null;
+                    yield break;
+                }
+
+                wiggleElapsed += Time.deltaTime;
+                float t = Mathf.Clamp01(wiggleElapsed / wiggleDuration);
+                float damp = 1f - (t * 0.3f);
+                float angleZ = Mathf.Sin(wiggleElapsed * 65f) * 14f * damp;
+                float angleY = Mathf.Cos(wiggleElapsed * 50f) * 10f * damp;
+                mysteryWrapper.transform.localRotation = Quaternion.Euler(0f, angleY, angleZ);
+                mysteryWrapper.transform.localPosition = new Vector3(Mathf.Sin(wiggleElapsed * 70f) * 0.04f, 0f, 0f);
+                yield return null;
+            }
+
+            if (!isMystery || mysteryWrapper == null)
+            {
+                _peekCoroutine = null;
+                _peekRunner = null;
+                yield break;
+            }
+
+            // 2. Enable underlying sushi model & renderers so the hidden piece is visible during peek
+            SetNormalSushiVisibleForPeek(true);
+
+            // Lift and shrink/open wrapper upward so the sushi inside can be clearly seen
+            float openDuration = 0.16f;
+            float openElapsed = 0f;
+            Vector3 peekLiftOffset = new Vector3(0f, 0.38f, 0f);
+            Vector3 peekScale = new Vector3(baseScale.x * 0.85f, baseScale.y * 0.35f, baseScale.z * 0.85f);
+
+            while (openElapsed < openDuration)
+            {
+                if (!isMystery || mysteryWrapper == null)
+                {
+                    _peekCoroutine = null;
+                    _peekRunner = null;
+                    yield break;
+                }
+
+                openElapsed += Time.deltaTime;
+                float t = Mathf.Clamp01(openElapsed / openDuration);
+                float smoothT = t * t * (3f - 2f * t);
+                mysteryWrapper.transform.localPosition = Vector3.Lerp(Vector3.zero, peekLiftOffset, smoothT);
+                mysteryWrapper.transform.localScale = Vector3.Lerp(baseScale, peekScale, smoothT);
+                mysteryWrapper.transform.localRotation = Quaternion.identity;
+                yield return null;
+            }
+
+            // Hide wrapper while peeking so the sushi piece underneath is fully visible
+            if (isMystery && mysteryWrapper != null)
+            {
+                mysteryWrapper.SetActive(false);
+            }
+
+            // 3. Hold peek for duration seconds (abort early if officially revealed during gameplay)
+            float waitElapsed = 0f;
+            while (waitElapsed < duration)
+            {
+                if (!isMystery)
+                {
+                    _peekCoroutine = null;
+                    _peekRunner = null;
+                    yield break;
+                }
+
+                waitElapsed += Time.deltaTime;
+                yield return null;
+            }
+
+            // 4. Close wrapper back if still in mystery state
+            if (isMystery && mysteryWrapper != null)
+            {
+                mysteryWrapper.SetActive(true);
+
+                float closeDuration = 0.16f;
+                float closeElapsed = 0f;
+                while (closeElapsed < closeDuration)
+                {
+                    if (!isMystery || mysteryWrapper == null)
+                    {
+                        _peekCoroutine = null;
+                        _peekRunner = null;
+                        yield break;
+                    }
+
+                    closeElapsed += Time.deltaTime;
+                    float t = Mathf.Clamp01(closeElapsed / closeDuration);
+                    float smoothT = t * t * (3f - 2f * t);
+                    mysteryWrapper.transform.localPosition = Vector3.Lerp(peekLiftOffset, Vector3.zero, smoothT);
+                    mysteryWrapper.transform.localScale = Vector3.Lerp(peekScale, baseScale, smoothT);
+                    yield return null;
+                }
+
+                if (isMystery && mysteryWrapper != null)
+                {
+                    mysteryWrapper.transform.localPosition = Vector3.zero;
+                    mysteryWrapper.transform.localRotation = Quaternion.identity;
+                    mysteryWrapper.transform.localScale = baseScale;
+                    UpdateVisualState();
+                }
+            }
+
+            _peekCoroutine = null;
+            _peekRunner = null;
+        }
+
+        private void SetNormalSushiVisibleForPeek(bool visible)
+        {
+            if (normalModel != null && normalModel != gameObject && normalModel != mysteryWrapper)
+            {
+                normalModel.SetActive(visible);
+            }
+
+            Renderer[] allRenderers = GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < allRenderers.Length; i++)
+            {
+                Renderer r = allRenderers[i];
+                if (r == null) continue;
+                if (mysteryWrapper != null && (r.gameObject == mysteryWrapper || r.transform.IsChildOf(mysteryWrapper.transform)))
+                    continue;
+
+                if (visible)
+                {
+                    r.gameObject.SetActive(true);
+                }
+                r.enabled = visible;
             }
         }
 
@@ -594,6 +779,7 @@ namespace SushiSort.Gameplay
         {
             SafeStopCoroutine(ref _movementCoroutine, ref _movementRunner);
             SafeStopCoroutine(ref _revealCoroutine, ref _revealRunner);
+            SafeStopCoroutine(ref _peekCoroutine, ref _peekRunner);
         }
     }
 }
